@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>엘리멘탈 헥사 (Elemental Hexa)</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; background: #121212; color: #fff; margin: 20px; }
+        #mode-select { margin-bottom: 15px; }
+        button { padding: 8px 16px; font-size: 15px; font-weight: bold; background: #333; color: #fff; border: 1px solid #555; border-radius: 5px; cursor: pointer; margin: 0 5px; }
+        button.active { background: #00e676; color: #000; border-color: #00e676; }
+        #game-board { display: grid; grid-template-columns: repeat(8, 65px); grid-template-rows: repeat(8, 65px); border: 5px solid #5c3a21; box-shadow: 0 10px 25px rgba(0,0,0,0.8); }
+        .cell { width: 65px; height: 65px; display: flex; align-items: center; justify-content: center; font-size: 32px; cursor: pointer; user-select: none; position: relative; }
+        .white-cell { background-color: #eadeca; }
+        .black-cell { background-color: #966f33; }
+        .selected { outline: 4px solid #00e676; z-index: 10; }
+        
+        .piece-w { filter: drop-shadow(0px 0px 4px #fff) drop-shadow(0px 0px 8px #ffd700); }
+        .piece-b { filter: drop-shadow(0px 0px 4px #000) drop-shadow(0px 0px 8px #00d2ff); }
+
+        .movable::before { content: ""; width: 16px; height: 16px; background-color: rgba(0, 230, 118, 0.7); border-radius: 50%; position: absolute; }
+        .fire-tile { background-color: rgba(255, 87, 34, 0.65) !important; }
+        .fire-tile::after { content: "🔥"; position: absolute; font-size: 14px; bottom: 2px; right: 2px; }
+
+        #info-panel { margin-top: 20px; padding: 15px 25px; background: #222; border-radius: 10px; text-align: center; width: 480px; }
+        .status { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
+        .scores { display: flex; justify-content: space-around; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+    <h1> elemental HEXA </h1>
+
+    <div id="mode-select">
+        <button id="btn-pvp" class="active" onclick="setMode('pvp')">2인 모드 (멀티)</button>
+        <button id="btn-ai" onclick="setMode('ai')">싱글 모드 (VS AI)</button>
+    </div>
+
+    <div id="game-board"></div>
+
+    <div id="info-panel">
+        <div class="status">현재 턴: <span id="current-turn" style="color:#00e676;">백(White)</span> | 남은 수: <span id="turns-left">30</span>/30</div>
+        <div class="scores">
+            <div>⚪ 백 점수: <span id="white-score">22</span>점</div>
+            <div>⚫ 흑 점수: <span id="black-score">22</span>점</div>
+        </div>
+    </div>
+
+    <script>
+        let gameMode = 'pvp'; // 'pvp' 또는 'ai'
+        let board = [];
+        let fireTiles = [];
+        let selected = null;
+        let validMoves = [];
+        let turn = 'w';
+        let moveCount = 30;
+        let isGameOver = false;
+
+        const icons = {
+            "wP": "🔥", "wA": "🌊", "wB": "🪵", "wH": "🌪️", "wQ": "☀️",
+            "bP": "💥", "bA": "💧", "bB": "🪨", "bH": "💨", "bQ": "🌕"
+        };
+
+        const pieceScores = { "P": 3, "A": 3, "B": 2, "H": 5, "Q": 10 };
+
+        function initGame() {
+            board = [
+                ["bP","bA","bB","bH","bH","bB","bA","bP"],
+                ["","","","","","","",""],
+                ["","","","","","","",""],
+                ["","","","","","","",""],
+                ["","","","","","","",""],
+                ["","","","","","","",""],
+                ["","","","","","","",""],
+                ["wP","wA","wB","wH","wH","wB","wA","wP"]
+            ];
+            fireTiles = [];
+            selected = null;
+            validMoves = [];
+            turn = 'w';
+            moveCount = 30;
+            isGameOver = false;
+            render();
+        }
+
+        function setMode(mode) {
+            gameMode = mode;
+            document.getElementById('btn-pvp').className = mode === 'pvp' ? 'active' : '';
+            document.getElementById('btn-ai').className = mode === 'ai' ? 'active' : '';
+            initGame();
+        }
+
+        function render() {
+            const boardEl = document.getElementById('game-board');
+            boardEl.innerHTML = '';
+
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = `cell ${(r + c) % 2 === 0 ? 'white-cell' : 'black-cell'}`;
+                    
+                    const hasFire = fireTiles.some(f => f.r === r && f.c === c);
+                    if (hasFire) cell.classList.add('fire-tile');
+
+                    if (selected && selected.r === r && selected.c === c) {
+                        cell.classList.add('selected');
+                    }
+
+                    if (validMoves.some(m => m.r === r && m.c === c)) {
+                        cell.classList.add('movable');
+                    }
+
+                    const piece = board[r][c];
+                    if (piece) {
+                        const span = document.createElement('span');
+                        span.textContent = icons[piece] || piece;
+                        span.className = piece.startsWith('w') ? 'piece-w' : 'piece-b';
+                        cell.appendChild(span);
+                    }
+
+                    cell.onclick = () => handleClick(r, c);
+                    boardEl.appendChild(cell);
+                }
+            }
+            updateInfo();
+        }
+
+        function handleClick(r, c) {
+            if (isGameOver) return;
+            if (gameMode === 'ai' && turn === 'b') return; // AI 턴에는 입력 차단
+
+            const piece = board[r][c];
+
+            if (piece && piece.startsWith(turn)) {
+                selected = { r, c, type: piece };
+                validMoves = getValidMoves(r, c, piece);
+                render();
+                return;
+            }
+
+            if (selected && validMoves.some(m => m.r === r && m.c === c)) {
+                executeMove(selected.r, selected.c, r, c, selected.type);
+            }
+        }
+
+        function getValidMoves(r, c, piece) {
+            const moves = [];
+            const pType = piece.slice(1);
+            const dirs = {
+                rook: [[1,0],[-1,0],[0,1],[0,-1]],
+                bishop: [[1,1],[1,-1],[-1,1],[-1,-1]],
+                queen: [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]],
+                knight: [[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]]
+            };
+
+            if (pType === 'P' || pType === 'Q') {
+                for (let [dr, dc] of dirs.rook) {
+                    let nr = r + dr, nc = c + dc;
+                    while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        if (board[nr][nc] === "") moves.push({r: nr, c: nc});
+                        else {
+                            if (!board[nr][nc].startsWith(turn)) moves.push({r: nr, c: nc});
+                            break;
+                        }
+                        nr += dr; nc += dc;
+                    }
+                }
+            } else if (pType === 'A') {
+                for (let [dr, dc] of dirs.bishop) {
+                    let nr = r + dr, nc = c + dc;
+                    while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        if (board[nr][nc] === "") moves.push({r: nr, c: nc});
+                        else {
+                            if (!board[nr][nc].startsWith(turn)) moves.push({r: nr, c: nc});
+                            break;
+                        }
+                        nr += dr; nc += dc;
+                    }
+                }
+            } else if (pType === 'B') {
+                for (let [dr, dc] of dirs.knight) {
+                    let nr = r + dr, nc = c + dc;
+                    if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        if (!board[nr][nc].startsWith(turn)) moves.push({r: nr, c: nc});
+                    }
+                }
+            } else if (pType === 'H') {
+                for (let [dr, dc] of dirs.queen) {
+                    for (let step = 1; step <= 3; step++) {
+                        let nr = r + dr * step, nc = c + dc * step;
+                        if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                            if (board[nr][nc] === "") moves.push({r: nr, c: nc});
+                            else {
+                                if (!board[nr][nc].startsWith(turn)) moves.push({r: nr, c: nc});
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            return moves;
+        }
+
+        function executeMove(fromR, fromC, toR, toC, piece) {
+            const isCapture = board[toR][toC] !== "";
+            board[toR][toC] = piece;
+            board[fromR][fromC] = "";
+
+            const pType = piece.slice(1);
+            const owner = piece[0];
+
+            // 1. 퍈(P) 이동 시 불길 생성
+            if (pType === 'P' && !isCapture) {
+                const adj = [[1,0],[-1,0],[0,1],[0,-1]];
+                for (let [dr, dc] of adj) {
+                    let fr = toR + dr, fc = toC + dc;
+                    if (fr >= 0 && fr < 8 && fc >= 0 && fc < 8) {
+                        fireTiles = fireTiles.filter(f => !(f.r === fr && f.c === fc));
+                        fireTiles.push({ r: fr, c: fc, owner: owner, turnsLeft: 4 });
+                    }
+                }
+            }
+
+            // 2. 허드(H) 연성 / 함정 검사
+            if (pType === 'H') {
+                const checkArea = [[0,0],[1,0],[-1,0],[0,1],[0,-1]];
+                let myFires = 0;
+                let enemyFires = 0;
+
+                for (let [dr, dc] of checkArea) {
+                    let fr = toR + dr, fc = toC + dc;
+                    fireTiles.forEach(f => {
+                        if (f.r === fr && f.c === fc) {
+                            if (f.owner === owner) myFires++;
+                            else enemyFires++;
+                        }
+                    });
+                }
+
+                if (enemyFires >= 2) {
+                    board[toR][toC] = "";
+                    let enemyOwner = owner === 'w' ? 'b' : 'w';
+                    transformPyarnToQuat(enemyOwner);
+                    alert("⚠️ 함정 발동! 허드가 소멸하고 상대 퍈이 쿼드로 진화했습니다.");
+                } else if (myFires >= 2) {
+                    board[toR][toC] = "";
+                    transformPyarnToQuat(owner);
+                    alert("✨ 태양 연성 성공! 허드가 소멸하고 퍈이 쿼드(☀️/🌕 10점)로 진화했습니다!");
+                }
+            }
+
+            // 전멸 조건 판정
+            checkWipeout();
+            if (isGameOver) return;
+
+            // 턴 교체 및 불길 수명 차감
+            turn = (turn === 'w') ? 'b' : 'w';
+            moveCount--;
+
+            fireTiles.forEach(f => f.turnsLeft--);
+            fireTiles = fireTiles.filter(f => f.turnsLeft > 0);
+
+            selected = null;
+            validMoves = [];
+            render();
+
+            // 30수 제한 종료 체크
+            if (moveCount <= 0) {
+                endGameByScore();
+                return;
+            }
+
+            // 싱글 모드 AI 턴 실행
+            if (gameMode === 'ai' && turn === 'b' && !isGameOver) {
+                setTimeout(makeAIMove, 500);
+            }
+        }
+
+        // AI 행동 로직 (간단한 난이도)
+        function makeAIMove() {
+            let allMoves = [];
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (board[r][c].startsWith('b')) {
+                        const piece = board[r][c];
+                        const moves = getValidMoves(r, c, piece);
+                        moves.forEach(m => {
+                            allMoves.push({ fromR: r, fromC: c, toR: m.r, toC: m.c, piece: piece });
+                        });
+                    }
+                }
+            }
+
+            if (allMoves.length > 0) {
+                // 잡기 이동이 가능하면 우선적으로 잡음
+                let captureMoves = allMoves.filter(m => board[m.toR][m.toC] !== "");
+                let chosenMove = captureMoves.length > 0 ? captureMoves[Math.floor(Math.random() * captureMoves.length)] : allMoves[Math.floor(Math.random() * allMoves.length)];
+                
+                executeMove(chosenMove.fromR, chosenMove.fromC, chosenMove.toR, chosenMove.toC, chosenMove.piece);
+            }
+        }
+
+        // 전멸 승리 판정
+        function checkWipeout() {
+            let wPieces = 0, bPieces = 0;
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (board[r][c].startsWith('w')) wPieces++;
+                    if (board[r][c].startsWith('b')) bPieces++;
+                }
+            }
+
+            if (wPieces === 0) {
+                isGameOver = true;
+                alert("🏆 흑(Black)의 승리! 백의 모든 기물이 전멸했습니다.");
+            } else if (bPieces === 0) {
+                isGameOver = true;
+                alert("🏆 백(White)의 승리! 흑의 모든 기물이 전멸했습니다.");
+            }
+        }
+
+        function endGameByScore() {
+            isGameOver = true;
+            const { wScore, bScore } = calculateScores();
+            if (wScore > bScore) alert(`🏆 30수 종료! 백(White) 승리! (${wScore}점 대 ${bScore}점)`);
+            else if (bScore > wScore) alert(`🏆 30수 종료! 흑(Black) 승리! (${bScore}점 대 ${wScore}점)`);
+            else alert(`🤝 30수 종료! 무승부입니다! (${wScore}점 대 ${bScore}점)`);
+        }
+
+        function transformPyarnToQuat(targetOwner) {
+            const targetP = targetOwner + 'P';
+            const targetQ = targetOwner + 'Q';
+
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (board[r][c] === targetP) {
+                        board[r][c] = targetQ;
+                        return;
+                    }
+                }
+            }
+        }
+
+        function calculateScores() {
+            let wScore = 0, bScore = 0;
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const p = board[r][c];
+                    if (p) {
+                        const score = pieceScores[p[1]] || 0;
+                        if (p.startsWith('w')) wScore += score;
+                        else if (p.startsWith('b')) bScore += score;
+                    }
+                }
+            }
+            return { wScore, bScore };
+        }
+
+        function updateInfo() {
+            document.getElementById('current-turn').textContent = turn === 'w' ? '백(White)' : '흑(Black)';
+            document.getElementById('current-turn').style.color = turn === 'w' ? '#00e676' : '#ff5252';
+            document.getElementById('turns-left').textContent = moveCount;
+
+            const { wScore, bScore } = calculateScores();
+            document.getElementById('white-score').textContent = wScore;
+            document.getElementById('black-score').textContent = bScore;
+        }
+
+        initGame();
+    </script>
+</body>
+</html>
