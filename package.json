@@ -1,0 +1,32 @@
+August 2, 2026 at 1:32 AM
+failed
+08a5d69
+Update dd.package.json
+
+Rollback
+Exited with status 254 while building your code.
+Read our docs for common ways to troubleshoot your deploy.
+
+All logs
+Search
+Search logs
+
+Live tail
+
+
+
+==> Cloning from https://github.com/hodo-1211/elemental-hexa
+==> Checking out commit 08a5d69ada5ed6d1e9c2cacd2f65f827bfc90332 in branch main
+==> Using Node.js version 24.14.1 (default)
+==> Docs on specifying a Node.js version: https://render.com/docs/node-version
+==> Running build command 'npm install'...
+npm error code ENOENT
+npm error syscall open
+npm error path /opt/render/project/src/package.json
+npm error errno -2
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/opt/render/project/src/package.json'
+npm error enoent This is related to npm not being able to find a file.
+npm error enoent
+npm error A complete log of this run can be found in: /opt/render/.cache/_logs/2026-08-01T16_32_33_723Z-debug-0.log
+==> Build failed 😞
+==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
